@@ -3,6 +3,127 @@ import { useState, useEffect } from "react";
 import { camerasAPI } from "@/lib/api";
 import api from "@/lib/api";
 
+function PushDiagnostico() {
+  const [info, setInfo] = useState<any>({});
+  const [logs, setLogs] = useState<{msg:string,tipo:string}[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    setInfo({
+      isPWA: (window.navigator as any).standalone === true,
+      isIOS: /iPad|iPhone|iPod/.test(navigator.userAgent),
+      hasNotification: "Notification" in window,
+      hasSW: "serviceWorker" in navigator,
+      hasPush: "PushManager" in window,
+      permission: ("Notification" in window) ? Notification.permission : "N/A",
+    });
+  }, []);
+
+  function add(msg: string, tipo = "info") {
+    setLogs(l => [...l, { msg, tipo }]);
+  }
+
+  async function testarPush() {
+    setLogs([]);
+    setLoading(true);
+    try {
+      add("📱 PWA standalone: " + (info.isPWA ? "✅ SIM" : "❌ NÃO — instale via Safari > Adicionar à Tela"));
+      add("🔔 Notification API: " + (info.hasNotification ? "✅" : "❌ Não existe"));
+      add("⚙️ ServiceWorker: " + (info.hasSW ? "✅" : "❌ Não existe"));
+      add("📡 PushManager: " + (info.hasPush ? "✅" : "❌ Não existe"));
+      add("🔑 Permissão atual: " + info.permission);
+
+      if (!info.hasNotification || !info.hasPush) {
+        add("❌ Push não suportado neste browser/versão", "err");
+        return;
+      }
+
+      add("Pedindo permissão...");
+      const perm = await Notification.requestPermission();
+      add("Permissão: " + perm, perm === "granted" ? "ok" : "err");
+      if (perm !== "granted") return;
+
+      add("Aguardando Service Worker...");
+      const reg = await navigator.serviceWorker.ready;
+      add("✅ SW ativo: " + reg.active?.state, "ok");
+
+      add("Buscando VAPID key...");
+      const { data } = await api.get("/api/v1/push/vapid-key");
+      const rawKey = data.public_key || data.vapid_public_key || data.key;
+      add("✅ VAPID key completa: " + rawKey, "ok");
+      add("Tamanho: " + rawKey?.length + " chars", "info");
+
+      const base64 = rawKey.replace(/-/g,"+").replace(/_/g,"/");
+      const padding = "=".repeat((4-(base64.length%4))%4);
+      const raw = atob(base64+padding);
+      const keyBytes = new Uint8Array(raw.length);
+      for(let i=0;i<raw.length;i++) keyBytes[i]=raw.charCodeAt(i);
+      add("Bytes gerados: " + keyBytes.length + " (esperado: 65)", keyBytes.length===65?"ok":"err");
+
+      add("Subscrevendo...");
+      const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes.buffer });
+      add("✅ Subscribe OK!", "ok");
+
+      const s = sub.toJSON();
+      await api.post("/api/v1/push/subscribe", { endpoint: s.endpoint, p256dh: s.keys?.p256dh, auth: s.keys?.auth });
+      add("✅ Salvo no backend!", "ok");
+
+      add("Enviando push de teste...");
+      const resp = await api.post("/api/v1/push/test", {});
+      add("✅ Push enviado! Aguarde a notificação...", "ok");
+
+    } catch(e: any) {
+      add("❌ Erro: " + e.message, "err");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const corTipo: any = { ok:"#00e676", err:"#ff4444", info:"#7a9ab8" };
+
+  return (
+    <div style={{ background:"linear-gradient(135deg,#0d1520,#0a1018)", border:"1px solid rgba(0,160,255,0.15)", borderRadius:10, padding:"14px 16px" }}>
+      <div style={{ fontSize:12, fontWeight:600, color:"#8ab0cc", marginBottom:12 }}>Notificacoes Push</div>
+
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6, marginBottom:12 }}>
+        {[
+          { label:"PWA Instalado", ok: info.isPWA },
+          { label:"iOS", ok: info.isIOS },
+          { label:"Notification API", ok: info.hasNotification },
+          { label:"PushManager", ok: info.hasPush },
+        ].map((item,i) => (
+          <div key={i} style={{ background:"rgba(0,0,0,0.2)", borderRadius:6, padding:"6px 10px", display:"flex", justifyContent:"space-between" }}>
+            <span style={{ fontSize:11, color:"#5a7a9a" }}>{item.label}</span>
+            <span style={{ fontSize:11, color: item.ok ? "#00e676" : "#ff4444" }}>{item.ok ? "✅" : "❌"}</span>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ marginBottom:8, padding:"6px 10px", background:"rgba(0,0,0,0.2)", borderRadius:6, fontSize:11, color:"#5a7a9a" }}>
+        Permissão: <span style={{ color: info.permission==="granted"?"#00e676":info.permission==="denied"?"#ff4444":"#ffaa00", fontFamily:"'Share Tech Mono',monospace" }}>{info.permission}</span>
+      </div>
+
+      {!info.isPWA && (
+        <div style={{ marginBottom:10, padding:"8px 12px", background:"rgba(255,170,0,0.1)", border:"1px solid rgba(255,170,0,0.3)", borderRadius:6, fontSize:11, color:"#ffaa00" }}>
+          ⚠️ Para push funcionar no iOS: abra no Safari → toque em Compartilhar → Adicionar à Tela de Início → abra pelo ícone
+        </div>
+      )}
+
+      <button onClick={testarPush} disabled={loading} style={{ width:"100%", padding:"10px 0", border:"none", borderRadius:6, background:"linear-gradient(135deg,#0066cc,#004499)", color:"#fff", fontFamily:"'Orbitron',monospace", fontSize:11, fontWeight:700, cursor:"pointer", opacity:loading?0.6:1, marginBottom:8 }}>
+        {loading ? "TESTANDO..." : "🔔 TESTAR PUSH"}
+      </button>
+
+      {logs.length > 0 && (
+        <div style={{ background:"rgba(0,0,0,0.3)", borderRadius:6, padding:"8px 10px", maxHeight:180, overflowY:"auto" }}>
+          {logs.map((l,i) => (
+            <div key={i} style={{ fontSize:11, color: corTipo[l.tipo]||"#7a9ab8", padding:"2px 0", fontFamily:"'Share Tech Mono',monospace" }}>{l.msg}</div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ConfiguracoesPage() {
   const [cameras, setCameras] = useState<any[]>([]);
   const [modalCam, setModalCam] = useState(false);
@@ -90,6 +211,9 @@ export default function ConfiguracoesPage() {
         </div>
         <div style={{ fontSize:11, color:"#4a6a8a" }}>Gerencie os usuarios que tem acesso ao sistema. Apenas administradores podem criar novos usuarios.</div>
       </div>
+
+      {/* Push Notifications */}
+      <PushDiagnostico />
 
       {/* Info sistema */}
       <div style={{ background:"linear-gradient(135deg,#0d1520,#0a1018)", border:"1px solid rgba(0,160,255,0.15)", borderRadius:10, padding:"14px 16px" }}>

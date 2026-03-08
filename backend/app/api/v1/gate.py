@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel
 from datetime import datetime
+import ssl
 import paho.mqtt.publish as publish
 from app.core.database import get_db
 from app.core.security import get_current_user
@@ -36,13 +37,35 @@ class GateResponse(BaseModel):
         from_attributes = True
 
 def mqtt_publish(topic: str, payload: str):
+    """
+    Publica mensagem no broker MQTT.
+    - Porta 1883 (localhost): sem TLS, conexão interna
+    - Porta 8883 (externo):   TLS obrigatório com certificado Let's Encrypt
+    """
     try:
+        port = int(getattr(settings, "MQTT_PORT", 1883))
+        host = getattr(settings, "MQTT_BROKER", "127.0.0.1")
+        user = getattr(settings, "MQTT_USER", None)
+        password = getattr(settings, "MQTT_PASSWORD", None)
+
+        auth = {"username": user, "password": password} if user else None
+
+        # TLS automático para porta 8883
+        tls = None
+        if port == 8883:
+            tls = {
+                "ca_certs": None,           # usa CAs do sistema (Let's Encrypt reconhecido)
+                "tls_version": ssl.PROTOCOL_TLS_CLIENT,
+                "cert_reqs": ssl.CERT_REQUIRED,
+            }
+
         publish.single(
             topic=topic,
             payload=payload,
-            hostname=settings.MQTT_BROKER,
-            port=settings.MQTT_PORT,
-            auth={"username": settings.MQTT_USER, "password": settings.MQTT_PASSWORD} if settings.MQTT_USER else None
+            hostname=host,
+            port=port,
+            auth=auth,
+            tls=tls,
         )
         return True
     except Exception as e:

@@ -26,13 +26,31 @@ export default function PainelPage() {
   const [cameras, setCameras] = useState<any[]>([]);
   const [portao, setPortao] = useState<"aberto"|"fechado">("fechado");
   const [relogio, setRelogio] = useState(new Date());
+  const [lastPhoto, setLastPhoto] = useState<string|null>(null);
+  const [lastEventId, setLastEventId] = useState<number|null>(null);
 
   useEffect(() => {
     const t = setInterval(() => setRelogio(new Date()), 1000);
     carregarDados();
-    const r = setInterval(carregarDados, 10000); // atualiza a cada 10s
+    const r = setInterval(carregarDados, 10000);
     return () => { clearInterval(t); clearInterval(r); };
   }, []);
+
+  // Busca foto automaticamente quando chega novo evento
+  useEffect(() => {
+    if (lastEvent && lastEvent.id !== lastEventId) {
+      setLastEventId(lastEvent.id);
+      setLastPhoto(null); // limpa foto anterior enquanto carrega
+      import("@/lib/api").then(({ default: api }) => {
+        api.get(`/api/v1/events/${lastEvent.id}/photo`)
+          .then(res => {
+            const b64 = res.data.image_b64;
+            if (b64) setLastPhoto(b64.startsWith("data:") ? b64 : `data:image/jpeg;base64,${b64}`);
+          })
+          .catch(() => setLastPhoto(null));
+      });
+    }
+  }, [lastEvent]);
 
   async function carregarDados() {
     try {
@@ -73,21 +91,40 @@ export default function PainelPage() {
       <div style={{ display:"grid", gridTemplateColumns:"1fr 280px", gap:12 }}>
         <div style={{ background:"linear-gradient(135deg,#0d1520,#0a1018)", border:"1px solid rgba(0,160,255,0.15)", borderRadius:10, overflow:"hidden" }}>
           <div style={{ padding:"10px 14px", borderBottom:"1px solid rgba(0,160,255,0.1)", fontSize:12, fontWeight:600, color:"#8ab0cc" }}>Ultima Placa Detectada</div>
-          <div style={{ position:"relative", height:160, background:"linear-gradient(135deg,#0a1a2a,#0d2035)", display:"flex", alignItems:"center", justifyContent:"center" }}>
-            {[{top:10,left:10},{top:10,right:10},{bottom:10,left:10},{bottom:10,right:10}].map((pos,i)=>(
-              <div key={i} style={{ position:"absolute", ...pos, width:20, height:20, borderTop:i<2?"2px solid rgba(0,180,255,0.6)":"none", borderBottom:i>=2?"2px solid rgba(0,180,255,0.6)":"none", borderLeft:i%2===0?"2px solid rgba(0,180,255,0.6)":"none", borderRight:i%2===1?"2px solid rgba(0,180,255,0.6)":"none" }} />
-            ))}
-            <div style={{ fontSize:40, opacity:0.1, color:"#00bfff", fontFamily:"'Orbitron',monospace" }}>[CAM]</div>
-            <div style={{ position:"absolute", top:10, right:10, display:"flex", alignItems:"center", gap:4, background:"rgba(0,0,0,0.6)", padding:"3px 8px", borderRadius:4, border:"1px solid rgba(255,50,50,0.4)" }}>
+          <div style={{ position:"relative", height:180, background:"linear-gradient(135deg,#0a1a2a,#0d2035)", display:"flex", alignItems:"center", justifyContent:"center", overflow:"hidden" }}>
+
+            {/* Foto real se disponível */}
+            {lastPhoto ? (
+              <img src={lastPhoto} alt="Ultima placa" style={{ width:"100%", height:"100%", objectFit:"cover", opacity:0.85 }} />
+            ) : (
+              <>
+                {[{top:10,left:10},{top:10,right:10},{bottom:10,left:10},{bottom:10,right:10}].map((pos,i)=>(
+                  <div key={i} style={{ position:"absolute", ...pos, width:20, height:20, borderTop:i<2?"2px solid rgba(0,180,255,0.6)":"none", borderBottom:i>=2?"2px solid rgba(0,180,255,0.6)":"none", borderLeft:i%2===0?"2px solid rgba(0,180,255,0.6)":"none", borderRight:i%2===1?"2px solid rgba(0,180,255,0.6)":"none" }} />
+                ))}
+                <div style={{ fontSize:40, opacity:0.1, color:"#00bfff", fontFamily:"'Orbitron',monospace" }}>[CAM]</div>
+              </>
+            )}
+
+            {/* Badge AO VIVO */}
+            <div style={{ position:"absolute", top:10, right:10, display:"flex", alignItems:"center", gap:4, background:"rgba(0,0,0,0.7)", padding:"3px 8px", borderRadius:4, border:"1px solid rgba(255,50,50,0.4)", backdropFilter:"blur(4px)" }}>
               <div style={{ width:6, height:6, borderRadius:"50%", background:"#ff3333", boxShadow:"0 0 6px #ff3333", animation:"blink 1.5s ease infinite" }} />
               <span style={{ fontSize:9, color:"#ff7777", fontWeight:700, letterSpacing:1, fontFamily:"'Orbitron',monospace" }}>AO VIVO</span>
             </div>
-            <div style={{ position:"absolute", bottom:0, left:0, right:0, background:"linear-gradient(transparent,rgba(0,0,0,0.9))", padding:"20px 16px 12px" }}>
-              <div style={{ fontFamily:"'Orbitron',monospace", fontSize:26, fontWeight:900, color:"#fff", letterSpacing:4 }}>
+
+            {/* Badge status liberado/negado */}
+            {lastEvent && (
+              <div style={{ position:"absolute", top:10, left:10, background:lastEvent.status==="granted"?"rgba(0,180,60,0.8)":"rgba(200,0,0,0.8)", padding:"3px 8px", borderRadius:4, fontSize:9, color:"#fff", fontWeight:700, fontFamily:"'Orbitron',monospace", backdropFilter:"blur(4px)" }}>
+                {lastEvent.status==="granted"?"✅ LIBERADO":"❌ NEGADO"}
+              </div>
+            )}
+
+            {/* Placa + hora na base */}
+            <div style={{ position:"absolute", bottom:0, left:0, right:0, background:"linear-gradient(transparent,rgba(0,0,0,0.92))", padding:"24px 16px 12px" }}>
+              <div style={{ fontFamily:"'Orbitron',monospace", fontSize:26, fontWeight:900, color:"#fff", letterSpacing:4, textShadow:"0 2px 8px rgba(0,0,0,0.8)" }}>
                 {lastEvent?.plate || "---"}
               </div>
-              <div style={{ fontSize:11, color:"#7a9ab8", fontFamily:"'Share Tech Mono',monospace" }}>
-                {lastEvent ? new Date(lastEvent.detected_at).toLocaleString("pt-BR") : "Nenhum evento"}
+              <div style={{ fontSize:11, color:"#7a9ab8", fontFamily:"'Share Tech Mono',monospace", marginTop:2 }}>
+                {lastEvent ? `📷 ${lastEvent.camera_name || "---"}  ·  ${new Date(lastEvent.detected_at).toLocaleString("pt-BR")}` : "Nenhum evento"}
               </div>
             </div>
           </div>
