@@ -22,12 +22,24 @@ export default function PlacasPage() {
 
   async function verFoto(ev: any) {
     setFotoLoading(true);
-    setFotoModal({ ...ev, image_b64: null });
+    setFotoModal({ ...ev, fotoSrc: null });
     try {
+      // Se já vem image_url no evento, usa direto
+      if (ev.image_url) {
+        setFotoModal({ ...ev, fotoSrc: ev.image_url });
+        return;
+      }
       const res = await api.get(`/api/v1/events/${ev.id}/photo`);
-      setFotoModal({ ...ev, image_b64: res.data.image_b64 });
+      if (res.data.image_url) {
+        setFotoModal({ ...ev, fotoSrc: res.data.image_url });
+      } else if (res.data.image_b64) {
+        const b64 = res.data.image_b64;
+        setFotoModal({ ...ev, fotoSrc: b64.startsWith("data:") ? b64 : `data:image/jpeg;base64,${b64}` });
+      } else {
+        setFotoModal({ ...ev, fotoSrc: null });
+      }
     } catch {
-      setFotoModal({ ...ev, image_b64: null });
+      setFotoModal({ ...ev, fotoSrc: null });
     } finally { setFotoLoading(false); }
   }
 
@@ -113,11 +125,11 @@ export default function PlacasPage() {
               <div style={{ fontSize:11, color:fotoModal.status==="granted"?"#00e676":"#ff4444", fontWeight:600, padding:"3px 10px", borderRadius:4, background:fotoModal.status==="granted"?"rgba(0,230,118,0.1)":"rgba(255,68,68,0.1)", border:`1px solid ${fotoModal.status==="granted"?"rgba(0,230,118,0.3)":"rgba(255,68,68,0.3)"}` }}>{fotoModal.status==="granted"?"LIBERADO":"NEGADO"}</div>
             </div>
             {fotoLoading && <div style={{ height:160, display:"flex", alignItems:"center", justifyContent:"center", color:"#4a6a8a" }}>Carregando...</div>}
-            {!fotoLoading && fotoModal.image_b64 && (
-              <img src={fotoModal.image_b64.startsWith("data:") ? fotoModal.image_b64 : `data:image/jpeg;base64,${fotoModal.image_b64}`}
+            {!fotoLoading && fotoModal.fotoSrc && (
+              <img src={fotoModal.fotoSrc}
                 style={{ width:"100%", borderRadius:8, border:"1px solid rgba(0,160,255,0.15)", maxHeight:400, objectFit:"contain" }} />
             )}
-            {!fotoLoading && !fotoModal.image_b64 && <div style={{ height:160, display:"flex", alignItems:"center", justifyContent:"center", color:"#4a6a8a" }}>Sem foto</div>}
+            {!fotoLoading && !fotoModal.fotoSrc && <div style={{ height:160, display:"flex", alignItems:"center", justifyContent:"center", color:"#4a6a8a" }}>Sem foto</div>}
             <div style={{ marginTop:10, fontSize:11, color:"#5a7a9a", fontFamily:"'Share Tech Mono',monospace", display:"flex", justifyContent:"space-between", flexWrap:"wrap", gap:4 }}>
               <span>Cam: {fotoModal.camera_name}</span>
               <span>{new Date(fotoModal.detected_at).toLocaleString("pt-BR")}</span>
