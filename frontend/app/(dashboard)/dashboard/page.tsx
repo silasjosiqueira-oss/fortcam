@@ -40,12 +40,22 @@ export default function PainelPage() {
   useEffect(() => {
     if (lastEvent && lastEvent.id !== lastEventId) {
       setLastEventId(lastEvent.id);
-      setLastPhoto(null); // limpa foto anterior enquanto carrega
+      setLastPhoto(null);
+      // Se já vem image_url direto no evento, usa direto
+      if (lastEvent.image_url) {
+        setLastPhoto(lastEvent.image_url);
+        return;
+      }
+      // Senão busca no endpoint de foto
       import("@/lib/api").then(({ default: api }) => {
         api.get(`/api/v1/events/${lastEvent.id}/photo`)
           .then(res => {
-            const b64 = res.data.image_b64;
-            if (b64) setLastPhoto(b64.startsWith("data:") ? b64 : `data:image/jpeg;base64,${b64}`);
+            if (res.data.image_url) {
+              setLastPhoto(res.data.image_url);
+            } else if (res.data.image_b64) {
+              const b64 = res.data.image_b64;
+              setLastPhoto(b64.startsWith("data:") ? b64 : `data:image/jpeg;base64,${b64}`);
+            }
           })
           .catch(() => setLastPhoto(null));
       });
